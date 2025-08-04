@@ -49,7 +49,7 @@ SEL_USERNAME_INPUT = (
     "input[aria-label='Username'], input[placeholder*='User']"
 )
 SEL_NEXT_BUTTON = (
-    "button:[type='submit']"
+    ".login-page-form-button button[type='submit'], button:has-text('Next'), button[type='submit']"
 )
 SEL_PASSWORD_INPUT = (
     "input[type='password'], input[name='password'], input[autocomplete='current-password'], "
