@@ -13,7 +13,7 @@ BASE_URL = "https://www.realpage.com/login/identity/Account/SignIn"
 USERNAME = os.getenv('REALPAGE_USERNAME')
 PASSWORD = os.getenv('REALPAGE_PASSWORD')
 # change as needed
-REPORT_NAME = "STYL Variance Report (Custom/MagTech Monthly Financials)"
+REPORT_NAME = "1. STYL Variance Report (Custom/MagTech Monthly Financials)"
 DATE_FORMAT = "%m/%d/%Y"  # adjust if the form expects a different format
 DEFAULT_TIMEOUT_MS = 30_000
 
@@ -64,24 +64,26 @@ SEL_FINANCIAL_SUITE_TILE = (
     "a:has(raul-icon[title='Financial Suite'])"
 )
 SEL_FAVORITES_MENU = (
-    "text=Favorites, role=menuitem[name*='Favorites'], role=link[name*='Favorites']"
+    "#favorites-menu"
 )
 SEL_FINANCIAL_REPORTS_MENUITEM = (
-    "text=Financial reports, role=menuitem[name*='Financial report']"
+    "#siaappsmenu > div.qx-siamenu-favorites.qx-siamenu-cnt.active > div.qx-siamenu-fav-content > div.qx-fav-content.qx-menu-hover-scroll.sortable > div:nth-child(1) > div > a.qx-nav-name"
 )
 
 # --- Reports list ---
-SEL_REPORT_ROWS = "table tr"
-SEL_SCHEDULE_LINK_IN_ROW = "a:has-text('Schedule'), button:has-text('Schedule')"
+SEL_REPORT_ROWS = "#listcontent tbody tr"
+SEL_SCHEDULE_LINK_IN_ROW = "td a[href*='editor.phtml']:has-text('Schedule')"
 
 # --- Schedule form ---
 SEL_START_DATE_INPUT = (
+    "#_obj__STARTDATE, #obj__STARTDATE, input[id*='obj__STARTDATE'], input[name*='STARTDATE'], "
     "input[aria-label*='Start Date'], input[placeholder*='Start'], input[name*='start'][type='text'], input#start-date"
 )
 SEL_EVERY_INPUT = (
+    "#_obj__INTERVAL, #obj__INTERVAL, input[id*='obj__INTERVAL'], input[id*='INTERVAL'], input[name*='INTERVAL'], "
     "input[aria-label*='Every'], input[name*='every'], input#every"
 )
-SEL_SAVE_BUTTON = "button:has-text('Save'), button:has-text('Update'), input[type='submit']"
+SEL_SAVE_BUTTON = "button:has-text('Save'), button:has-text('Update'), input[type='submit'], button[type='submit']"
 
 # =========================================
 # Flows
@@ -113,81 +115,272 @@ def navigate_to_scheduled_reports(page):
     # Listen for new page/tab before clicking
     with page.context.expect_page() as new_page_info:
         click_when_visible(page, SEL_FINANCIAL_SUITE_TILE)
-    
+
     # Switch to the new tab
     new_page = new_page_info.value
-    new_page.wait_for_load_state("networkidle")
-    
+    new_page.wait_for_load_state("domcontentloaded")
+    new_page.wait_for_load_state("load")
+
     # Continue with the new page instead of original
-    # Hover Favorites to show dropdown
+    # Wait much longer for Financial Suite page to fully load all dynamic content
+    print("Waiting for Financial Suite page to fully load...")
+    new_page.wait_for_timeout(10000)
+
+    # Click Favorites to show dropdown (instead of hover)
     favorites = new_page.locator(SEL_FAVORITES_MENU)
     favorites.wait_for(state="visible")
-    favorites.hover()
+    print(f"Found favorites menu: {favorites.count()}")
+    favorites.click()
+    print("Clicked favorites menu")
 
-    # Click Financial reports
-    menu_item = new_page.locator(SEL_FINANCIAL_REPORTS_MENUITEM)
-    menu_item.wait_for(state="visible")
-    menu_item.click()
-    new_page.wait_for_load_state("networkidle")
-    
+    # Wait for the favorites dropdown to be visible
+    new_page.wait_for_selector(".qx-siamenu-favorites.active", timeout=10000)
+    print("Favorites dropdown is now visible")
+
+    # Wait additional time for dropdown content to fully load
+    new_page.wait_for_timeout(5000)
+
+    # Click Financial reports link in the favorites dropdown
+    financial_reports_link = new_page.locator(SEL_FINANCIAL_REPORTS_MENUITEM)
+    financial_reports_link.click(force=True)
+    print("Clicked Financial reports link in favorites dropdown")
+
+    # Wait for page to load and then wait additional time for dynamic content
+    new_page.wait_for_load_state("domcontentloaded")
+    new_page.wait_for_load_state("load")
+    print("Waiting for Financial reports page to fully load...")
+    new_page.wait_for_timeout(8000)  # Wait 8 seconds for dynamic content
+    print("Financial reports page should be fully loaded")
+
     return new_page
 
 
 def find_report_row_and_open_schedule(page, report_name: str):
-    page.wait_for_selector(SEL_REPORT_ROWS)
+    print(f"Looking for report: {report_name}")
 
-    # Direct row lookup containing report name
-    row = page.locator(f"tr:has(td:has-text('{report_name}'))").first
-    if row.count() == 0:
-        row = page.locator(f"tr:has(:text('{report_name}'))").first
+    # Find the iframe containing the reports table
+    iframe_page = None
+    iframes = page.locator("iframe")
+    for i in range(iframes.count()):
+        try:
+            iframe = iframes.nth(i)
+            iframe_name = iframe.get_attribute("name") or ""
+
+            if iframe_name:  # Only try iframes with names
+                iframe.wait_for(state="attached", timeout=5000)
+                page.wait_for_timeout(1000)
+
+                iframe_page = page.frame(name=iframe_name)
+                if iframe_page:
+                    iframe_page.wait_for_load_state(
+                        "domcontentloaded", timeout=10000)
+                    iframe_page.wait_for_timeout(2000)
+
+                    # Check if this iframe contains the reports table
+                    if iframe_page.locator("#listcontent tbody tr").count() > 0:
+                        print(f"Using iframe '{
+                              iframe_name}' for reports table")
+                        break
+        except:
+            continue
+
+    if not iframe_page:
+        iframe_page = page
+
+    # Wait for table content to load
+    iframe_page.wait_for_timeout(3000)
+
+    # Find the report row - try different selectors
+    row = iframe_page.locator(
+        f"#listcontent tbody tr:has(td font:has-text('{report_name}'))").first
 
     if row.count() == 0:
-        # Fallback: iterate all rows
-        rows = page.locator(SEL_REPORT_ROWS)
-        n = rows.count()
-        for i in range(n):
-            r = rows.nth(i)
+        row = iframe_page.locator(
+            f"#listcontent tbody tr:has(td:has-text('{report_name}'))").first
+
+    if row.count() == 0:
+        # Fallback: search through all rows
+        rows = iframe_page.locator("#listcontent tbody tr")
+        for i in range(rows.count()):
             try:
-                txt = r.inner_text(timeout=2_000)
-            except Exception:
+                r = rows.nth(i)
+                txt = " ".join(r.all_text_contents())
+                if report_name.lower() in txt.lower():
+                    row = r
+                    break
+            except:
                 continue
-            if report_name.lower() in txt.lower():
-                row = r
-                break
 
     assert row.count() > 0, f"Report row not found for: {report_name}"
 
-    # Click the Schedule action in the same row
+    # Click the Schedule link
     schedule_link = row.locator(SEL_SCHEDULE_LINK_IN_ROW).first
     schedule_link.wait_for(state="visible")
     schedule_link.click()
-    page.wait_for_load_state("networkidle")
+    iframe_page.wait_for_load_state("networkidle")
+
+    return iframe_page
 
 
-def reschedule_form(page):
+def reschedule_form(initial_iframe_page):
+    print("=== RESCHEDULE FORM DEBUG ===")
+    print(f"Initial iframe page: {initial_iframe_page}")
+
+    # After clicking Schedule, we need to find the new iframe with the form
+    # This might be a new page or a new iframe within the current context
+
+    # Wait for new page/iframe to load
+    print("Waiting for new page/iframe to load...")
+    initial_iframe_page.wait_for_timeout(3000)
+
+    # Try to find the schedule form iframe - it might be in the parent page
+    parent_page = initial_iframe_page.page
+    print(f"Parent page: {parent_page}")
+    form_iframe_page = None
+
+    # Look for iframes in the parent page that might contain the form
+    iframes = parent_page.locator("iframe")
+    iframe_count = iframes.count()
+    print(f"Found {iframe_count} iframes in parent page")
+
+    for i in range(iframe_count):
+        try:
+            iframe = iframes.nth(i)
+            iframe_name = iframe.get_attribute("name") or ""
+            iframe_src = iframe.get_attribute("src") or ""
+            iframe_id = iframe.get_attribute("id") or ""
+            print(f"  Iframe {i}: name='{iframe_name}' src='{
+                  iframe_src[:50]}...' id='{iframe_id}'")
+
+            if iframe_name:
+                iframe_page = parent_page.frame(name=iframe_name)
+                if iframe_page:
+                    print(f"    Successfully accessed iframe '{iframe_name}'")
+                    iframe_page.wait_for_load_state(
+                        "domcontentloaded", timeout=5000)
+                    iframe_page.wait_for_timeout(1000)
+
+                    # Check for various input types and elements
+                    text_inputs = iframe_page.locator(
+                        "input[type='text']").count()
+                    all_inputs = iframe_page.locator("input").count()
+                    forms = iframe_page.locator("form").count()
+                    print(f"    Found: {text_inputs} text inputs, {
+                          all_inputs} total inputs, {forms} forms")
+
+                    # Also check for the specific selectors we're looking for
+                    start_date_matches = iframe_page.locator(
+                        SEL_START_DATE_INPUT).count()
+                    every_matches = iframe_page.locator(
+                        SEL_EVERY_INPUT).count()
+                    save_matches = iframe_page.locator(SEL_SAVE_BUTTON).count()
+                    print(f"    Selector matches: start_date={start_date_matches}, every={
+                          every_matches}, save={save_matches}")
+
+                    # Check if this iframe contains form inputs
+                    if (text_inputs > 0 or all_inputs > 0 or start_date_matches > 0):
+                        print(f"    ✓ Using iframe '{
+                              iframe_name}' for schedule form")
+                        form_iframe_page = iframe_page
+                        break
+                    else:
+                        print(f"    ✗ No form elements found in iframe '{
+                              iframe_name}'")
+        except Exception as e:
+            print(f"  Error accessing iframe {i}: {e}")
+            continue
+
+    # If no form iframe found, try the original iframe
+    if not form_iframe_page:
+        print("No form iframe found, using original iframe")
+        form_iframe_page = initial_iframe_page
+
+        # Debug the original iframe too
+        text_inputs = form_iframe_page.locator("input[type='text']").count()
+        all_inputs = form_iframe_page.locator("input").count()
+        start_date_matches = form_iframe_page.locator(
+            SEL_START_DATE_INPUT).count()
+        every_matches = form_iframe_page.locator(SEL_EVERY_INPUT).count()
+        save_matches = form_iframe_page.locator(SEL_SAVE_BUTTON).count()
+        print(
+            f"Original iframe - inputs: {text_inputs} text, {all_inputs} total")
+        print(f"Original iframe - selectors: start_date={
+              start_date_matches}, every={every_matches}, save={save_matches}")
+
+    # Wait a bit more for form elements to load
+    print("Waiting for form elements to load...")
+    form_iframe_page.wait_for_timeout(2000)
+
+    # Debug: Show what selectors we're using
+    print(f"Start Date selector: {SEL_START_DATE_INPUT}")
+    print(f"Every selector: {SEL_EVERY_INPUT}")
+    print(f"Save selector: {SEL_SAVE_BUTTON}")
+
     # Start Date -> today
-    start_input = page.locator(SEL_START_DATE_INPUT).first
-    start_input.wait_for(state="visible")
-    start_input.fill("")
-    start_input.type(today_str())
+    print("Looking for Start Date input...")
+    start_input = form_iframe_page.locator(SEL_START_DATE_INPUT).first
+    start_count = start_input.count()
+    print(f"Found {start_count} start date inputs")
+
+    if start_count > 0:
+        print("Filling start date input...")
+        start_input.wait_for(state="visible")
+        start_input.fill("")
+        start_input.type(today_str())
+        print(f"Start date set to: {today_str()}")
+    else:
+        print("ERROR: No start date input found!")
+        # Try to find any inputs that might be the start date
+        all_inputs = form_iframe_page.locator("input")
+        print(f"All inputs found: {all_inputs.count()}")
+        for i in range(min(5, all_inputs.count())):  # Show first 5 inputs
+            try:
+                inp = all_inputs.nth(i)
+                inp_type = inp.get_attribute("type") or ""
+                inp_name = inp.get_attribute("name") or ""
+                inp_id = inp.get_attribute("id") or ""
+                inp_placeholder = inp.get_attribute("placeholder") or ""
+                print(f"  Input {i}: type='{inp_type}' name='{inp_name}' id='{
+                      inp_id}' placeholder='{inp_placeholder}'")
+            except Exception as e:
+                print(f"  Input {i}: Error - {e}")
 
     # Toggle Every 1<->2
-    every_input = page.locator(SEL_EVERY_INPUT).first
-    every_input.wait_for(state="visible")
-    current = ""
-    try:
-        current = every_input.input_value(timeout=3_000).strip()
-    except Exception:
-        pass
-    new_val = "2" if current == "1" else "1" if current == "2" else "1"
-    every_input.fill("")
-    every_input.type(new_val)
+    print("Looking for Every input...")
+    every_input = form_iframe_page.locator(SEL_EVERY_INPUT).first
+    every_count = every_input.count()
+    print(f"Found {every_count} every inputs")
+
+    if every_count > 0:
+        every_input.wait_for(state="visible")
+        current = ""
+        try:
+            current = every_input.input_value(timeout=3_000).strip()
+            print(f"Current 'every' value: '{current}'")
+        except Exception as e:
+            print(f"Error getting current value: {e}")
+        new_val = "2" if current == "1" else "1" if current == "2" else "1"
+        print(f"Setting 'every' to: '{new_val}'")
+        every_input.fill("")
+        every_input.type(new_val)
+    else:
+        print("ERROR: No every input found!")
 
     # Save/Update
-    save = page.locator(SEL_SAVE_BUTTON).first
-    if save.count() > 0:
+    print("Looking for Save button...")
+    save = form_iframe_page.locator(SEL_SAVE_BUTTON).first
+    save_count = save.count()
+    print(f"Found {save_count} save buttons")
+
+    if save_count > 0:
+        print("Clicking save button...")
         save.click()
-        page.wait_for_load_state("networkidle")
+        form_iframe_page.wait_for_load_state("networkidle")
+        print("Save completed")
+    else:
+        print("ERROR: No save button found!")
+
+    print("=== RESCHEDULE FORM DEBUG END ===")
 
 # =========================================
 # Entry
@@ -205,10 +398,11 @@ def run(playwright: Playwright):
         load_login_page(page)
         login_flow(page, USERNAME, PASSWORD)
         financial_page = navigate_to_scheduled_reports(page)
-        find_report_row_and_open_schedule(financial_page, REPORT_NAME)
-        reschedule_form(financial_page)
+        iframe_page = find_report_row_and_open_schedule(
+            financial_page, REPORT_NAME)
+        reschedule_form(iframe_page)
         # Short wait so you can observe the result before closing
-        financial_page.wait_for_timeout(1000)
+        iframe_page.wait_for_timeout(1000)
     finally:
         context.close()
         browser.close()
