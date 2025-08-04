@@ -61,7 +61,7 @@ SEL_LOGIN_BUTTON = (
 
 # --- Landing / navigation ---
 SEL_FINANCIAL_SUITE_TILE = (
-    "text=Financial Suite, role=link[name*='Financial Suite']"
+    "a:has(raul-icon[title='Financial Suite']), a:has(.box-title:has-text('Financial Suite')), text=Financial Suite"
 )
 SEL_FAVORITES_MENU = (
     "text=Favorites, role=menuitem[name*='Favorites'], role=link[name*='Favorites']"
