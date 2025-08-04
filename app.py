@@ -110,19 +110,27 @@ def navigate_to_scheduled_reports(page):
     page.wait_for_load_state("domcontentloaded")
     page.wait_for_load_state("networkidle")
 
-    click_when_visible(page, SEL_FINANCIAL_SUITE_TILE)
-    page.wait_for_load_state("networkidle")
-
+    # Listen for new page/tab before clicking
+    with page.context.expect_page() as new_page_info:
+        click_when_visible(page, SEL_FINANCIAL_SUITE_TILE)
+    
+    # Switch to the new tab
+    new_page = new_page_info.value
+    new_page.wait_for_load_state("networkidle")
+    
+    # Continue with the new page instead of original
     # Hover Favorites to show dropdown
-    favorites = page.locator(SEL_FAVORITES_MENU)
+    favorites = new_page.locator(SEL_FAVORITES_MENU)
     favorites.wait_for(state="visible")
     favorites.hover()
 
     # Click Financial reports
-    menu_item = page.locator(SEL_FINANCIAL_REPORTS_MENUITEM)
+    menu_item = new_page.locator(SEL_FINANCIAL_REPORTS_MENUITEM)
     menu_item.wait_for(state="visible")
     menu_item.click()
-    page.wait_for_load_state("networkidle")
+    new_page.wait_for_load_state("networkidle")
+    
+    return new_page
 
 
 def find_report_row_and_open_schedule(page, report_name: str):
@@ -196,11 +204,11 @@ def run(playwright: Playwright):
     try:
         load_login_page(page)
         login_flow(page, USERNAME, PASSWORD)
-        navigate_to_scheduled_reports(page)
-        find_report_row_and_open_schedule(page, REPORT_NAME)
-        reschedule_form(page)
+        financial_page = navigate_to_scheduled_reports(page)
+        find_report_row_and_open_schedule(financial_page, REPORT_NAME)
+        reschedule_form(financial_page)
         # Short wait so you can observe the result before closing
-        page.wait_for_timeout(1000)
+        financial_page.wait_for_timeout(1000)
     finally:
         context.close()
         browser.close()
