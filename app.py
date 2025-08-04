@@ -56,7 +56,7 @@ SEL_PASSWORD_INPUT = (
     "input[aria-label='Password']"
 )
 SEL_LOGIN_BUTTON = (
-    "button:has-text('Login'), button:has-text('Sign in'), input[type='submit']"
+    ".login-page-form-button button[type='submit'], button:has-text('Login'), button:has-text('Sign in'), input[type='submit']"
 )
 
 # --- Landing / navigation ---
