@@ -12,8 +12,11 @@ load_dotenv()
 BASE_URL = "https://www.realpage.com/login/identity/Account/SignIn"
 USERNAME = os.getenv('REALPAGE_USERNAME')
 PASSWORD = os.getenv('REALPAGE_PASSWORD')
-# change as needed
-REPORT_NAME = "1. STYL Variance Report (Custom/MagTech Monthly Financials)"
+# change as needed - add multiple report names to reschedule all of them
+REPORT_NAMES = [
+    "1. STYL Variance Report (Custom/MagTech Monthly Financials)",
+    "1. STYL Variance Report (Custom/Magtech Variance Notes)"
+]
 DATE_FORMAT = "%m/%d/%Y"  # adjust if the form expects a different format
 DEFAULT_TIMEOUT_MS = 30_000
 
@@ -398,11 +401,24 @@ def run(playwright: Playwright):
         load_login_page(page)
         login_flow(page, USERNAME, PASSWORD)
         financial_page = navigate_to_scheduled_reports(page)
-        iframe_page = find_report_row_and_open_schedule(
-            financial_page, REPORT_NAME)
-        reschedule_form(iframe_page)
+
+        # Process each report in the list
+        for i, report_name in enumerate(REPORT_NAMES):
+            print(f"\n=== Processing report {
+                  i+1}/{len(REPORT_NAMES)}: {report_name} ===")
+            iframe_page = find_report_row_and_open_schedule(
+                financial_page, report_name)
+            reschedule_form(iframe_page)
+
+            # After saving, page automatically returns to reports list
+            # Wait a moment for the page to fully load before processing next report
+            if i < len(REPORT_NAMES) - 1:  # Not the last report
+                print("Waiting for reports list to reload before next report...")
+                financial_page.wait_for_timeout(3000)
+
+        print(f"\n=== Successfully processed {len(REPORT_NAMES)} reports ===")
         # Short wait so you can observe the result before closing
-        iframe_page.wait_for_timeout(1000)
+        financial_page.wait_for_timeout(2000)
     finally:
         context.close()
         browser.close()
